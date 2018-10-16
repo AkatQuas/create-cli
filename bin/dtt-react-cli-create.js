@@ -3,60 +3,51 @@ const program = require('commander');
 const path = require('path');
 const fs = require('fs-extra');
 const inquirer = require('inquirer');
-const { logger, download, metalsmithGenerator, installDeps } = require('../utils');
+const shell = require('shelljs');
+const { logger, download, metalsmithGenerator, installDeps, getData, postData } = require('../utils');
 
 program
-    .usage('<project-name>')
     .parse(process.argv)
 
-const projectName = program.args[0];
 const CWD = process.cwd();
 
-if (!projectName) {
-    return program.help();
-}
-
-const preProjectPath = _ => {
-    let next = void 0;
+async function preProjectPath(projectName) {
     const rootName = path.basename(CWD);
-
     const list = fs.readdirSync(CWD)
         .filter(name => name.includes(projectName))
         .filter(name => fs.statSync(path.resolve(CWD, name)).isDirectory());
 
     if (list.length) {
-        next = inquirer.prompt([
+        const { override } = await inquirer.prompt([
             {
                 name: 'override',
                 message: `Already a dircetory named ${projectName} exists, override?`,
                 type: 'confirm',
                 default: false
             }
-        ]).then(({ override }) => {
-            if (override) {
-                return Promise.resolve(projectName);
-            } else {
-                logger.error('Not override, process will end.');
-                process.exit(0);
-            }
-        });
+        ]);
+        if (!override) {
+            logger.error('Not override, process will end.');
+            process.exit(0);
+        }
+
+        return projectName;
     } else if (rootName === projectName) {
-        next = inquirer.prompt([
+        const { buildInCurrent } = await inquirer.prompt([
             {
                 name: 'buildInCurrent',
                 message: 'Current directory\'s name is same as the target project name, overwrite here?',
                 type: 'confirm',
                 default: false
             }
-        ]).then(({ buildInCurrent }) => buildInCurrent ? '.' : projectName);
-    } else {
-        next = Promise.resolve(projectName);
-    }
+        ]);
 
-    return next;
+        return buildInCurrent ? '.' : projectName;
+    }
+    return projectName;
 }
 
-const colloctInfo = _ => inquirer.prompt([
+const colloctInfo = ({ projectName, gitUrl }) => inquirer.prompt([
     {
         name: 'author',
         message: 'Author',
@@ -85,16 +76,98 @@ const colloctInfo = _ => inquirer.prompt([
     {
         name: 'gitUrl',
         message: 'Git repository url',
-        default: ''
+        default: gitUrl
     }
 ]);
 
+async function createRemoteGit() {
+    const { projectName, needRemote } = await inquirer.prompt([
+        {
+            name: 'projectName',
+            message: 'What name should we name project? ',
+            validate: res => !!res
+        },
+        {
+            name: 'needRemote',
+            message: 'Should we create a remote repo automatically?',
+            type: 'confirm',
+            default: true
+        }
+    ]);
+
+    if (!needRemote) {
+        logger.warning('You\'d better create the remote repo yourself.');
+        return {
+            gitUrl: '',
+            projectName,
+        }
+    }
+
+    const list = await getData('/namespaces');
+    const { nsId, repoDesc } = await inquirer.prompt([
+        {
+            name: 'nsId',
+            message: 'Which namespace should we create a repo?',
+            type: 'list',
+            choices: list.map(item => ({
+                name: item.name,
+                value: item.id
+            })),
+            validate: res => !!res
+        },
+        {
+            name: 'repoDesc',
+            message: 'Write some description for the repo?',
+            validate: res => !!res
+        }
+    ]);
+    try {
+        const { ssh_url_to_repo } = await postData('/projects', {
+            name: projectName,
+            namespace_id: nsId,
+            description: repoDesc
+        });
+        return {
+            gitUrl: ssh_url_to_repo,
+            projectName,
+        }
+    } catch (e) {
+        const { goOn } = await inquirer.prompt([
+            {
+                name: 'goOn',
+                message: 'Failed to create the remote repo, continue?',
+                type: 'confirm',
+                default: true
+            }
+        ]);
+        if (!goOn) {
+            process.exit(0);
+        }
+        logger.warning('Remember to create the remote repo manually!');
+        return {
+            gitUrl: '',
+            projectName,
+        }
+    }
+}
+
+async function initGit(gitUrl, projectDir) {
+    await shell.cd(projectDir);
+    await shell.exec('git init');
+    await shell.exec('git add .');
+    await shell.exec('git commit -m "feat:(all) initial submission. 🐎 "');
+    if (gitUrl) {
+        await shell.exec(`git remote add origin ${gitUrl}`);
+    }
+}
 
 async function main() {
-    logger.warning('This template is only for activity and some simple projects\n For bigger ones, use other frameworks');
+    logger.warning('This template is only for activity and some simple projects\n For bigger ones, use other frameworks.\n\n');
 
-    const projectPathname = await preProjectPath();
-    const metadata = await colloctInfo();
+    const { gitUrl, projectName } = await createRemoteGit();
+
+    const projectPathname = await preProjectPath(projectName);
+    const metadata = await colloctInfo({ projectName, gitUrl });
 
     const projectDir = path.resolve(CWD, projectPathname);
     fs.emptyDirSync(projectDir);
@@ -108,6 +181,8 @@ async function main() {
         downTemp,
         metadata
     });
+
+    await initGit(metadata.gitUrl, projectDir);
 
     installDeps(dest);
 }

@@ -9,6 +9,7 @@
   },
   "scripts": {},
   "dependencies": {
+    "axios": "^0.18.0",
     "chalk": "^2.4.1",
     "commander": "^2.15.1",
     "consolidate": "^0.15.1",
@@ -17,7 +18,8 @@
     "handlebars": "^4.0.11",
     "inquirer": "^6.0.0",
     "metalsmith": "^2.3.0",
-    "ora": "^2.1.0"
+    "ora": "^2.1.0",
+    "shelljs": "^0.8.2"
   },
   "devDependencies": {},
   "license": "MIT"
