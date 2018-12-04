@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs-extra');
 const inquirer = require('inquirer');
 const shell = require('shelljs');
+const ora = require('ora');
 const { logger, download, metalsmithGenerator, installDeps, getData, postData } = require('../utils');
 
 program
@@ -85,7 +86,8 @@ async function createRemoteGit() {
         {
             name: 'projectName',
             message: 'What name should we name project? ',
-            validate: res => !!res
+            validate: res => !!res,
+            filter: res => res.trim().toLocaleLowerCase().replace(/[^A-Za-z0-9_]/g, '-').replace(/-+/g, '-')
         },
         {
             name: 'needRemote',
@@ -121,17 +123,23 @@ async function createRemoteGit() {
             validate: res => !!res
         }
     ]);
+
+    const spinner = ora(`creating a repo ${projectName}`)
+    spinner.start();
+
     try {
         const { ssh_url_to_repo } = await postData('/projects', {
             name: projectName,
             namespace_id: nsId,
             description: repoDesc
         });
+        spinner.succeed();
         return {
             gitUrl: ssh_url_to_repo,
             projectName,
         }
     } catch (e) {
+        spinner.fail()
         const { goOn } = await inquirer.prompt([
             {
                 name: 'goOn',

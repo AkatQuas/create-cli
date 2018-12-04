@@ -30,6 +30,7 @@ module.exports = ({
                     reject(err);
                     return;
                 }
+                if (!metadata.useRouter) { fs.removeSync(path.resolve(dest, 'src/pages/todo-router')); }
                 fs.removeSync(src);
                 fs.renameSync(path.resolve(dest, '.gitlab-ci.template.yml'), path.resolve(dest, '.gitlab-ci.yml'))
                 resolve(dest);
